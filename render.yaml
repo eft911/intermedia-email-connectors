@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: metoo-customer-service-mcp
+    runtime: node
+    plan: starter
+    rootDir: customer-service
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: EWS_URL
+        value: https://east.exch028.serverdata.net/EWS/Exchange.asmx
+      - key: EWS_USERNAME
+        sync: false
+      - key: EWS_PASSWORD
+        sync: false
+      - key: SHARED_MAILBOX
+        value: customerservice@metooshoes.com
+      - key: MCP_PATH_SECRET
+        generateValue: true
+
+  - type: web
+    name: metoo-information-mcp
+    runtime: node
+    plan: starter
+    rootDir: information
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: EWS_URL
+        value: https://east.exch028.serverdata.net/EWS/Exchange.asmx
+      - key: EWS_USERNAME
+        sync: false
+      - key: EWS_PASSWORD
+        sync: false
+      - key: SHARED_MAILBOX
+        value: information@metooshoes.com
+      - key: MCP_PATH_SECRET
+        generateValue: true
