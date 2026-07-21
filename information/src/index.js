@@ -41,8 +41,8 @@ function createServer() {
     description: `Read-only. List recent messages in the information@metooshoes.com inbox. Messages categorized ${PROCESSED_CATEGORY} are excluded by default to prevent duplicate drafts.`,
     inputSchema: {
       unread_only: z.boolean().default(true).describe("Return only unread messages."),
-      since_hours: z.number().int().min(1).max(720).default(72).describe("Only return messages received within this many hours."),
-      max_results: z.number().int().min(1).max(50).default(20).describe("Maximum messages to return."),
+      since_hours: z.number().int().min(1).max(2160).default(72).describe("Only return messages received within this many hours."),
+      max_results: z.number().int().min(1).max(500).default(20).describe("Maximum messages to return."),
       include_already_drafted: z.boolean().default(false).describe(`Include messages already categorized ${PROCESSED_CATEGORY}.`),
     },
   }, async ({ unread_only, since_hours, max_results, include_already_drafted }) => {
