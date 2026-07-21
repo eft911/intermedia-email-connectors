@@ -181,7 +181,7 @@ export class EwsClient {
     const restriction = conditions.length
       ? `<m:Restriction>${conditions.length === 1 ? conditions[0] : `<t:And>${conditions.join("")}</t:And>`}</m:Restriction>`
       : "";
-    const pageSize = Math.min(Math.max(Number(maxResults) || 20, 1), 50);
+    const pageSize = Math.min(Math.max(Number(maxResults) || 20, 1), 500);
     const body = await this.request("FindItem", `
 <m:FindItem Traversal="Shallow">
   <m:ItemShape>
