@@ -64,8 +64,16 @@ function normalizeCategories(categories) {
   return array(categories?.String).map(text).filter(Boolean);
 }
 
+function extendedPropertyValue(item, propertyTag) {
+  const property = array(item?.ExtendedProperty).find((entry) =>
+    String(entry?.ExtendedFieldURI?.["@_PropertyTag"] || "").toLowerCase() === propertyTag.toLowerCase()
+  );
+  return text(property?.Value);
+}
+
 function normalizeMessage(item) {
   const itemId = item?.ItemId;
+  const lastVerbExecuted = Number(extendedPropertyValue(item, "0x1081") || 0);
   return {
     id: itemId?.["@_Id"] || "",
     change_key: itemId?.["@_ChangeKey"] || "",
@@ -75,6 +83,8 @@ function normalizeMessage(item) {
     is_read: text(item?.IsRead).toLowerCase() === "true",
     has_attachments: text(item?.HasAttachments).toLowerCase() === "true",
     categories: normalizeCategories(item?.Categories),
+    last_verb_executed: lastVerbExecuted || null,
+    has_been_replied: lastVerbExecuted === 102 || lastVerbExecuted === 103,
     body_type: item?.Body?.["@_BodyType"] || null,
     body: text(item?.Body) || null,
   };
@@ -193,6 +203,7 @@ export class EwsClient {
       <t:FieldURI FieldURI="message:IsRead"/>
       <t:FieldURI FieldURI="item:HasAttachments"/>
       <t:FieldURI FieldURI="item:Categories"/>
+      <t:ExtendedFieldURI PropertyTag="0x1081" PropertyType="Integer"/>
     </t:AdditionalProperties>
   </m:ItemShape>
   <m:IndexedPageItemView MaxEntriesReturned="${pageSize}" Offset="0" BasePoint="Beginning"/>
@@ -229,6 +240,7 @@ export class EwsClient {
       <t:FieldURI FieldURI="message:IsRead"/>
       <t:FieldURI FieldURI="item:HasAttachments"/>
       <t:FieldURI FieldURI="item:Categories"/>
+      <t:ExtendedFieldURI PropertyTag="0x1081" PropertyType="Integer"/>
       <t:FieldURI FieldURI="item:Body"/>
     </t:AdditionalProperties>
   </m:ItemShape>
