@@ -90,7 +90,20 @@ app.get("/health", (_req, res) => {
 });
 
 app.all("/mcp", (_req, res) => res.status(404).json({ error: "Not found" }));
-app.post(mcpPath, async (req, res) => {
+app.use(async (req, res, next) => {
+  // Render-generated Base64 secrets can contain characters such as +, =, and /.
+  // Compare the literal request path instead of compiling the secret as an
+  // Express/path-to-regexp route pattern.
+  if (req.path !== mcpPath) {
+    next();
+    return;
+  }
+
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
   const server = createServer();
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   try {
@@ -108,9 +121,6 @@ app.post(mcpPath, async (req, res) => {
     });
   }
 });
-
-app.get(mcpPath, (_req, res) => res.status(405).json({ error: "Method not allowed" }));
-app.delete(mcpPath, (_req, res) => res.status(405).json({ error: "Method not allowed" }));
 
 app.listen(config.port, (error) => {
   if (error) {
