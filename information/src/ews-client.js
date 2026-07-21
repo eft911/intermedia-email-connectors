@@ -79,6 +79,7 @@ function normalizeMessage(item) {
     change_key: itemId?.["@_ChangeKey"] || "",
     subject: text(item?.Subject) || "(no subject)",
     from: normalizeMailbox(item?.From?.Mailbox),
+    reply_to: array(item?.ReplyTo?.Mailbox).map(normalizeMailbox).filter(Boolean),
     received_at: text(item?.DateTimeReceived) || null,
     is_read: text(item?.IsRead).toLowerCase() === "true",
     has_attachments: text(item?.HasAttachments).toLowerCase() === "true",
@@ -199,6 +200,7 @@ export class EwsClient {
     <t:AdditionalProperties>
       <t:FieldURI FieldURI="item:Subject"/>
       <t:FieldURI FieldURI="message:From"/>
+      <t:FieldURI FieldURI="message:ReplyTo"/>
       <t:FieldURI FieldURI="item:DateTimeReceived"/>
       <t:FieldURI FieldURI="message:IsRead"/>
       <t:FieldURI FieldURI="item:HasAttachments"/>
@@ -236,6 +238,7 @@ export class EwsClient {
     <t:AdditionalProperties>
       <t:FieldURI FieldURI="item:Subject"/>
       <t:FieldURI FieldURI="message:From"/>
+      <t:FieldURI FieldURI="message:ReplyTo"/>
       <t:FieldURI FieldURI="item:DateTimeReceived"/>
       <t:FieldURI FieldURI="message:IsRead"/>
       <t:FieldURI FieldURI="item:HasAttachments"/>
