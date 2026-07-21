@@ -82,7 +82,10 @@ function createServer() {
   return server;
 }
 
-const app = createMcpExpressApp();
+// Render reaches the service through its own hostname. The SDK's localhost
+// default rejects those health-check Host headers, so bind as a hosted service.
+// MCP access remains protected by the high-entropy secret path below.
+const app = createMcpExpressApp({ host: "0.0.0.0" });
 const mcpPath = `/mcp/${config.mcpPathSecret}`;
 
 app.get("/health", (_req, res) => {
