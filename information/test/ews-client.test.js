@@ -39,12 +39,13 @@ test("healthCheck parses shared inbox counts", async () => {
 test("listMessages excludes messages already categorized as drafted", async () => {
   const client = clientWith([response(soap(`
     <m:FindItemResponse><m:ResponseMessages><m:FindItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:RootFolder TotalItemsInView="2"><t:Items>
-      <t:Message><t:ItemId Id="one" ChangeKey="ck1"/><t:Subject>Order one</t:Subject><t:From><t:Mailbox><t:Name>Jane</t:Name><t:EmailAddress>jane@example.com</t:EmailAddress></t:Mailbox></t:From><t:DateTimeReceived>2026-07-21T12:00:00Z</t:DateTimeReceived><t:IsRead>false</t:IsRead><t:HasAttachments>false</t:HasAttachments></t:Message>
+      <t:Message><t:ItemId Id="one" ChangeKey="ck1"/><t:Subject>Order one</t:Subject><t:From><t:Mailbox><t:Name>Jane</t:Name><t:EmailAddress>jane@example.com</t:EmailAddress></t:Mailbox></t:From><t:DateTimeReceived>2026-07-21T12:00:00Z</t:DateTimeReceived><t:IsRead>false</t:IsRead><t:HasAttachments>false</t:HasAttachments><t:ExtendedProperty><t:ExtendedFieldURI PropertyTag="0x1081" PropertyType="Integer"/><t:Value>102</t:Value></t:ExtendedProperty></t:Message>
       <t:Message><t:ItemId Id="two" ChangeKey="ck2"/><t:Subject>Order two</t:Subject><t:Categories><t:String>${PROCESSED_CATEGORY}</t:String></t:Categories><t:IsRead>false</t:IsRead><t:HasAttachments>false</t:HasAttachments></t:Message>
     </t:Items></m:RootFolder></m:FindItemResponseMessage></m:ResponseMessages></m:FindItemResponse>`))]);
   const result = await client.listMessages();
   assert.equal(result.messages.length, 1);
   assert.equal(result.messages[0].id, "one");
+  assert.equal(result.messages[0].has_been_replied, true);
 });
 
 test("createReplyDraft saves only and categorizes source", async () => {
