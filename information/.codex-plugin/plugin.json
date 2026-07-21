@@ -1,0 +1,23 @@
+{
+  "name": "intermedia-information-connector",
+  "version": "0.1.0",
+  "description": "Read information@metooshoes.com mail and save reply drafts without sending.",
+  "author": {
+    "name": "Me Too Shoes"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Intermedia Information Mail",
+    "shortDescription": "Draft safe replies for information@metooshoes.com.",
+    "longDescription": "Connects to information@metooshoes.com through Intermedia EWS, lists recent messages, reads message content, and saves reply drafts without sending email.",
+    "developerName": "Me Too Shoes",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": [
+      "Check information mail and prepare safe drafts.",
+      "Show unread information emails needing replies.",
+      "Draft a warm reply without sending it."
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}
