@@ -1,0 +1,23 @@
+{
+  "name": "intermedia-exchange-connector",
+  "version": "0.1.0",
+  "description": "Read Intermedia Hosted Exchange customer-service mail and save reply drafts without sending.",
+  "author": {
+    "name": "Me Too Shoes"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Intermedia Exchange Connector",
+    "shortDescription": "Draft safe customer-service replies in Intermedia Exchange.",
+    "longDescription": "Connects to a private Intermedia Hosted Exchange mailbox through EWS, lists recent customer messages, reads message content, and saves reply drafts without sending email.",
+    "developerName": "Me Too Shoes",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": [
+      "Check customer-service mail and prepare safe drafts.",
+      "Show unread customer inquiries needing replies.",
+      "Draft a warm reply without sending it."
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}
