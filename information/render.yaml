@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: intermedia-information-mcp
+    runtime: node
+    plan: starter
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: EWS_URL
+        sync: false
+      - key: EWS_USERNAME
+        sync: false
+      - key: EWS_PASSWORD
+        sync: false
+      - key: SHARED_MAILBOX
+        value: information@metooshoes.com
+      - key: MCP_PATH_SECRET
+        generateValue: true
