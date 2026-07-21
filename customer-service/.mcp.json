@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "intermedia-exchange": {
+      "type": "http",
+      "url": "https://replace-with-render-host.example.com/mcp/replace-with-generated-secret"
+    }
+  }
+}
