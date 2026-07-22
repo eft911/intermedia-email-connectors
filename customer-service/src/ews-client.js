@@ -136,6 +136,10 @@ function safeAqsPhrase(query) {
   return query.replace(/["\\]/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function formatAqsDate(value) {
+  return `${String(value.getUTCMonth() + 1).padStart(2, "0")}/${String(value.getUTCDate()).padStart(2, "0")}/${value.getUTCFullYear()}`;
+}
+
 function itemDate(item) {
   return text(item?.DateTimeSent) || text(item?.DateTimeReceived) || text(item?.DateTimeCreated) || null;
 }
@@ -353,8 +357,8 @@ export class EwsClient {
 
   async searchFolder({ key, label, folderXml, query, cutoff, offset, pageSize, dateKeyword }) {
     const phrase = safeAqsPhrase(query);
-    const date = cutoff.toISOString().slice(0, 10);
-    const aqs = `(subject:"${phrase}" OR body:"${phrase}") AND ${dateKeyword}>=${date}`;
+    const dateRange = `${formatAqsDate(cutoff)}..${formatAqsDate(this.nowFn())}`;
+    const aqs = `(subject:"${phrase}" OR body:"${phrase}") AND ${dateKeyword}:${dateRange}`;
     const body = await this.request("FindItem", `
 <m:FindItem Traversal="Shallow">
   <m:ItemShape>
@@ -542,4 +546,4 @@ export function loadConfig(env = process.env) {
   };
 }
 
-export const _test = { parseSoap, firstResponseMessage, responseMessages, normalizeMessage, xmlEscape, relevantExcerpt, encodeCursor, decodeCursor };
+export const _test = { parseSoap, firstResponseMessage, responseMessages, normalizeMessage, xmlEscape, relevantExcerpt, encodeCursor, decodeCursor, formatAqsDate };
