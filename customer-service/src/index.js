@@ -24,7 +24,7 @@ function toolError(error) {
 function createServer() {
   const server = new McpServer({
     name: "intermedia-exchange-connector",
-    version: "0.1.0",
+    version: "0.2.0",
   });
 
   server.registerTool("intermedia_health_check", {
@@ -102,7 +102,12 @@ const app = createMcpExpressApp({ host: "0.0.0.0" });
 const mcpPath = `/mcp/${config.mcpPathSecret}`;
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true, service: "intermedia-exchange-connector" });
+  res.json({
+    ok: true,
+    service: "intermedia-exchange-connector",
+    version: "0.2.0",
+    features: ["search_elton_mail"],
+  });
 });
 
 app.all("/mcp", (_req, res) => res.status(404).json({ error: "Not found" }));
