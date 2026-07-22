@@ -8,6 +8,8 @@ Private MCP connector for an Intermedia Hosted Exchange customer-service mailbox
 - `list_customer_messages` — lists recent/unread messages, excluding previously drafted messages by default.
 - `get_customer_message` — retrieves one message as plain text.
 - `search_elton_mail` — read-only, paginated subject/body search over 1, 2, or 3 calendar years in Inbox, Sent Items, and Archive. The default is 1 year.
+- `list_elton_attachments` — lists file and attached-email attachments, including type, size, and reading capability.
+- `read_elton_attachment` — extracts text from common document/data formats, returns images visually, and expands attached emails. Files are read in memory with a 10 MB limit.
 - `create_customer_reply_draft` — saves a reply draft and adds the `GPT Drafted` category to the source message.
 
 ## Security design
@@ -17,6 +19,7 @@ Private MCP connector for an Intermedia Hosted Exchange customer-service mailbox
 - The public `/mcp` route returns 404. MCP is exposed only at `/mcp/<MCP_PATH_SECRET>`.
 - There is deliberately no send tool.
 - Mail search performs only EWS folder/item reads and returns an opaque, query-bound pagination cursor.
+- Attachment access performs only EWS `GetItem` and `GetAttachment` reads. Attachment bytes are not saved to disk or written back to Exchange.
 - Use a dedicated, least-privileged mailbox credential where possible. Do not commit `.env` or credentials.
 
 ## Required Intermedia details
