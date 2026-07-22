@@ -1,4 +1,5 @@
 import { XMLParser } from "fast-xml-parser";
+import { createHash } from "node:crypto";
 
 const SOAP_NS = "http://schemas.xmlsoap.org/soap/envelope/";
 const MESSAGES_NS = "http://schemas.microsoft.com/exchange/services/2006/messages";
@@ -38,18 +39,24 @@ function text(value) {
 }
 
 function firstResponseMessage(body, operation) {
+  return responseMessages(body, operation)[0];
+}
+
+function responseMessages(body, operation) {
   const response = body?.[`${operation}Response`];
   const messages = response?.ResponseMessages;
   if (!messages) throw new Error(`EWS ${operation} response was missing ResponseMessages.`);
   const key = Object.keys(messages).find((name) => name.endsWith("ResponseMessage"));
-  const message = key ? array(messages[key])[0] : null;
-  if (!message) throw new Error(`EWS ${operation} response did not contain a response message.`);
-  const responseCode = text(message.ResponseCode);
-  if (message["@_ResponseClass"] !== "Success" || responseCode !== "NoError") {
-    const detail = text(message.MessageText) || responseCode || "Unknown EWS error";
-    throw new Error(`EWS ${operation} failed: ${detail}`);
+  const found = key ? array(messages[key]) : [];
+  if (!found.length) throw new Error(`EWS ${operation} response did not contain a response message.`);
+  for (const message of found) {
+    const responseCode = text(message.ResponseCode);
+    if (message["@_ResponseClass"] !== "Success" || responseCode !== "NoError") {
+      const detail = text(message.MessageText) || responseCode || "Unknown EWS error";
+      throw new Error(`EWS ${operation} failed: ${detail}`);
+    }
   }
-  return message;
+  return found;
 }
 
 function normalizeMailbox(mailbox) {
@@ -58,6 +65,10 @@ function normalizeMailbox(mailbox) {
     name: text(mailbox.Name) || null,
     email: text(mailbox.EmailAddress) || null,
   };
+}
+
+function normalizeMailboxes(mailboxes) {
+  return array(mailboxes?.Mailbox).map(normalizeMailbox).filter(Boolean);
 }
 
 function normalizeCategories(categories) {
@@ -80,6 +91,71 @@ function normalizeMessage(item) {
   };
 }
 
+function cleanBody(value) {
+  return text(value)
+    .replaceAll("\r", " ")
+    .replaceAll("\n", " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function relevantExcerpt(body, query, maxLength = 320) {
+  const cleaned = cleanBody(body);
+  if (!cleaned) return null;
+  const needle = query.toLocaleLowerCase();
+  const index = cleaned.toLocaleLowerCase().indexOf(needle);
+  const start = index < 0 ? 0 : Math.max(0, index - 100);
+  const end = Math.min(cleaned.length, start + maxLength);
+  return `${start > 0 ? "…" : ""}${cleaned.slice(start, end).trim()}${end < cleaned.length ? "…" : ""}`;
+}
+
+function queryFingerprint(query) {
+  return createHash("sha256").update(query).digest("hex").slice(0, 16);
+}
+
+function encodeCursor(query, offsets) {
+  return Buffer.from(JSON.stringify({ v: 1, q: queryFingerprint(query), offsets }), "utf8").toString("base64url");
+}
+
+function decodeCursor(cursor, query) {
+  if (!cursor) return { inbox: 0, sentitems: 0, archive: 0 };
+  try {
+    const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    const offsets = value?.offsets;
+    if (value?.v !== 1 || value?.q !== queryFingerprint(query) || !offsets) throw new Error();
+    for (const folder of ["inbox", "sentitems", "archive"]) {
+      if (!Number.isSafeInteger(offsets[folder]) || offsets[folder] < 0) throw new Error();
+    }
+    return offsets;
+  } catch {
+    throw new Error("Invalid or expired search cursor for this query.");
+  }
+}
+
+function safeAqsPhrase(query) {
+  return query.replace(/["\\]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function itemDate(item) {
+  return text(item?.DateTimeSent) || text(item?.DateTimeReceived) || text(item?.DateTimeCreated) || null;
+}
+
+function normalizeSearchDetails(item, summary, query) {
+  return {
+    date: itemDate(item) || summary.date,
+    sender: normalizeMailbox(item?.From?.Mailbox || item?.Sender?.Mailbox),
+    recipients: {
+      to: normalizeMailboxes(item?.ToRecipients),
+      cc: normalizeMailboxes(item?.CcRecipients),
+      bcc: normalizeMailboxes(item?.BccRecipients),
+    },
+    subject: text(item?.Subject) || summary.subject || "(no subject)",
+    folder: summary.folder,
+    message_id: summary.id,
+    excerpt: relevantExcerpt(item?.Body, query),
+  };
+}
+
 function parseSoap(xml) {
   const parsed = parser.parse(xml);
   const envelope = parsed?.Envelope;
@@ -98,7 +174,7 @@ function folderIdXml(mailbox, name) {
 }
 
 export class EwsClient {
-  constructor({ url, username, password, mailbox, fetchFn = fetch, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+  constructor({ url, username, password, mailbox, fetchFn = fetch, timeoutMs = DEFAULT_TIMEOUT_MS, nowFn = () => new Date() }) {
     this.url = new URL(url);
     if (this.url.protocol !== "https:" || !this.url.hostname.toLowerCase().endsWith(".serverdata.net")) {
       throw new Error("EWS_URL must be an HTTPS serverdata.net EWS endpoint.");
@@ -112,6 +188,8 @@ export class EwsClient {
     this.mailbox = mailbox;
     this.fetchFn = fetchFn;
     this.timeoutMs = timeoutMs;
+    this.nowFn = nowFn;
+    this.archiveFolderPromise = null;
   }
 
   envelope(operationXml) {
@@ -240,6 +318,155 @@ export class EwsClient {
     return normalizeMessage(item);
   }
 
+  async resolveArchiveFolder() {
+    if (!this.archiveFolderPromise) {
+      this.archiveFolderPromise = this.request("FindFolder", `
+<m:FindFolder Traversal="Deep">
+  <m:FolderShape>
+    <t:BaseShape>IdOnly</t:BaseShape>
+    <t:AdditionalProperties><t:FieldURI FieldURI="folder:DisplayName"/></t:AdditionalProperties>
+  </m:FolderShape>
+  <m:Restriction>
+    <t:IsEqualTo>
+      <t:FieldURI FieldURI="folder:DisplayName"/>
+      <t:FieldURIOrConstant><t:Constant Value="Archive"/></t:FieldURIOrConstant>
+    </t:IsEqualTo>
+  </m:Restriction>
+  <m:ParentFolderIds>${folderIdXml(this.mailbox, "msgfolderroot")}</m:ParentFolderIds>
+</m:FindFolder>`).then((body) => {
+        const message = firstResponseMessage(body, "FindFolder");
+        const folders = [
+          ...array(message?.RootFolder?.Folders?.Folder),
+          ...array(message?.RootFolder?.Folders?.SearchFolder),
+        ];
+        const archive = folders.find((folder) => text(folder?.DisplayName).toLocaleLowerCase() === "archive");
+        const id = archive?.FolderId?.["@_Id"];
+        if (!id) throw new Error("The Archive folder could not be found in the configured mailbox.");
+        return { id, changeKey: archive?.FolderId?.["@_ChangeKey"] || null };
+      }).catch((error) => {
+        this.archiveFolderPromise = null;
+        throw error;
+      });
+    }
+    return this.archiveFolderPromise;
+  }
+
+  async searchFolder({ key, label, folderXml, query, cutoff, offset, pageSize, dateKeyword }) {
+    const phrase = safeAqsPhrase(query);
+    const date = cutoff.toISOString().slice(0, 10);
+    const aqs = `(subject:"${phrase}" OR body:"${phrase}") AND ${dateKeyword}>=${date}`;
+    const body = await this.request("FindItem", `
+<m:FindItem Traversal="Shallow">
+  <m:ItemShape>
+    <t:BaseShape>IdOnly</t:BaseShape>
+    <t:AdditionalProperties>
+      <t:FieldURI FieldURI="item:Subject"/>
+      <t:FieldURI FieldURI="item:DateTimeReceived"/>
+      <t:FieldURI FieldURI="item:DateTimeSent"/>
+      <t:FieldURI FieldURI="item:DateTimeCreated"/>
+    </t:AdditionalProperties>
+  </m:ItemShape>
+  <m:IndexedPageItemView MaxEntriesReturned="${pageSize}" Offset="${offset}" BasePoint="Beginning"/>
+  <m:QueryString>${xmlEscape(aqs)}</m:QueryString>
+  <m:SortOrder><t:FieldOrder Order="Descending"><t:FieldURI FieldURI="item:DateTimeCreated"/></t:FieldOrder></m:SortOrder>
+  <m:ParentFolderIds>${folderXml}</m:ParentFolderIds>
+</m:FindItem>`);
+    const message = firstResponseMessage(body, "FindItem");
+    const root = message.RootFolder;
+    const items = [
+      ...array(root?.Items?.Message),
+      ...array(root?.Items?.MeetingRequest),
+    ].map((item) => ({
+      id: item?.ItemId?.["@_Id"] || "",
+      changeKey: item?.ItemId?.["@_ChangeKey"] || "",
+      subject: text(item?.Subject) || "(no subject)",
+      date: itemDate(item),
+      folder: label,
+      folderKey: key,
+    })).filter((item) => item.id);
+    return {
+      items,
+      hasMore: String(root?.["@_IncludesLastItemInRange"]).toLocaleLowerCase() !== "true",
+    };
+  }
+
+  async getSearchDetails(summaries, query) {
+    if (!summaries.length) return [];
+    const ids = summaries.map((summary) => `<t:ItemId Id="${xmlEscape(summary.id)}"/>`).join("");
+    const body = await this.request("GetItem", `
+<m:GetItem>
+  <m:ItemShape>
+    <t:BaseShape>IdOnly</t:BaseShape>
+    <t:BodyType>Text</t:BodyType>
+    <t:AdditionalProperties>
+      <t:FieldURI FieldURI="item:Subject"/>
+      <t:FieldURI FieldURI="item:DateTimeReceived"/>
+      <t:FieldURI FieldURI="item:DateTimeSent"/>
+      <t:FieldURI FieldURI="item:DateTimeCreated"/>
+      <t:FieldURI FieldURI="message:From"/>
+      <t:FieldURI FieldURI="message:Sender"/>
+      <t:FieldURI FieldURI="message:ToRecipients"/>
+      <t:FieldURI FieldURI="message:CcRecipients"/>
+      <t:FieldURI FieldURI="message:BccRecipients"/>
+      <t:FieldURI FieldURI="item:Body"/>
+    </t:AdditionalProperties>
+  </m:ItemShape>
+  <m:ItemIds>${ids}</m:ItemIds>
+</m:GetItem>`);
+    const messages = responseMessages(body, "GetItem");
+    return summaries.map((summary, index) => {
+      const response = messages[index];
+      const item = response?.Items?.Message || response?.Items?.MeetingRequest;
+      if (!item) throw new Error("EWS GetItem returned no email message for a search result.");
+      return normalizeSearchDetails(item, summary, query);
+    });
+  }
+
+  async searchMessages({ query, pageSize = 20, cursor = null }) {
+    const normalizedQuery = String(query || "").trim();
+    if (normalizedQuery.length < 2) throw new Error("Search query must contain at least 2 characters.");
+    if (normalizedQuery.length > 200) throw new Error("Search query must not exceed 200 characters.");
+    const size = Math.min(Math.max(Number(pageSize) || 20, 1), 50);
+    const offsets = decodeCursor(cursor, normalizedQuery);
+    const cutoff = new Date(this.nowFn().getTime() - 365 * 24 * 60 * 60 * 1000);
+    const archive = await this.resolveArchiveFolder();
+    const fetchSize = Math.min(size + 1, 50);
+    const folders = [
+      { key: "inbox", label: "Inbox", folderXml: folderIdXml(this.mailbox, "inbox"), dateKeyword: "received" },
+      { key: "sentitems", label: "Sent Items", folderXml: folderIdXml(this.mailbox, "sentitems"), dateKeyword: "sent" },
+      { key: "archive", label: "Archive", folderXml: `<t:FolderId Id="${xmlEscape(archive.id)}"/>`, dateKeyword: "received" },
+    ];
+    const pages = [];
+    for (const folder of folders) {
+      pages.push(await this.searchFolder({
+        ...folder,
+        query: normalizedQuery,
+        cutoff,
+        offset: offsets[folder.key],
+        pageSize: fetchSize,
+      }));
+    }
+    const merged = pages.flatMap((page) => page.items)
+      .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+    const selected = merged.slice(0, size);
+    const nextOffsets = { ...offsets };
+    for (const item of selected) nextOffsets[item.folderKey] += 1;
+    const hasMore = merged.length > selected.length || pages.some((page, index) =>
+      page.hasMore || page.items.length > selected.filter((item) => item.folderKey === folders[index].key).length
+    );
+    const results = await this.getSearchDetails(selected, normalizedQuery);
+    return {
+      mailbox: this.mailbox,
+      query: normalizedQuery,
+      searched_since: cutoff.toISOString(),
+      folders: folders.map((folder) => folder.label),
+      page_size: size,
+      results,
+      has_more: hasMore,
+      next_cursor: hasMore ? encodeCursor(normalizedQuery, nextOffsets) : null,
+    };
+  }
+
   async createReplyDraft({ messageId, textContent }) {
     const source = await this.getMessage(messageId);
     if (source.categories.includes(PROCESSED_CATEGORY)) {
@@ -315,4 +542,4 @@ export function loadConfig(env = process.env) {
   };
 }
 
-export const _test = { parseSoap, firstResponseMessage, normalizeMessage, xmlEscape };
+export const _test = { parseSoap, firstResponseMessage, responseMessages, normalizeMessage, xmlEscape, relevantExcerpt, encodeCursor, decodeCursor };
