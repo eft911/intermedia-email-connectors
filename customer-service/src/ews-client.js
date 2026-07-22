@@ -1,5 +1,6 @@
 import { XMLParser } from "fast-xml-parser";
 import { createHash } from "node:crypto";
+import { attachmentCapability, extractAttachmentContent, MAX_ATTACHMENT_BYTES } from "./attachment-parser.js";
 
 const SOAP_NS = "http://schemas.xmlsoap.org/soap/envelope/";
 const MESSAGES_NS = "http://schemas.microsoft.com/exchange/services/2006/messages";
@@ -156,7 +157,25 @@ function normalizeSearchDetails(item, summary, query) {
     subject: text(item?.Subject) || summary.subject || "(no subject)",
     folder: summary.folder,
     message_id: summary.id,
+    has_attachments: text(item?.HasAttachments).toLocaleLowerCase() === "true",
     excerpt: relevantExcerpt(item?.Body, query),
+  };
+}
+
+function normalizeAttachment(attachment, kind) {
+  const id = attachment?.AttachmentId?.["@_Id"] || "";
+  const name = text(attachment?.Name) || (kind === "item" ? "Attached email" : "Unnamed attachment");
+  const contentType = text(attachment?.ContentType) || (kind === "item" ? "message/rfc822" : "application/octet-stream");
+  const size = Number(text(attachment?.Size) || 0);
+  return {
+    attachment_id: id,
+    name,
+    content_type: contentType,
+    size,
+    is_inline: text(attachment?.IsInline).toLocaleLowerCase() === "true",
+    kind,
+    reading_capability: attachmentCapability({ name, contentType, kind }),
+    within_reading_limit: size <= MAX_ATTACHMENT_BYTES,
   };
 }
 
@@ -412,6 +431,7 @@ export class EwsClient {
       <t:FieldURI FieldURI="message:ToRecipients"/>
       <t:FieldURI FieldURI="message:CcRecipients"/>
       <t:FieldURI FieldURI="message:BccRecipients"/>
+      <t:FieldURI FieldURI="item:HasAttachments"/>
       <t:FieldURI FieldURI="item:Body"/>
     </t:AdditionalProperties>
   </m:ItemShape>
@@ -477,6 +497,87 @@ export class EwsClient {
       has_more: hasMore,
       next_cursor: hasMore ? encodeCursor(cursorScope, nextOffsets) : null,
     };
+  }
+
+  async listAttachments(messageId) {
+    const body = await this.request("GetItem", `
+<m:GetItem>
+  <m:ItemShape>
+    <t:BaseShape>IdOnly</t:BaseShape>
+    <t:AdditionalProperties>
+      <t:FieldURI FieldURI="item:Subject"/>
+      <t:FieldURI FieldURI="item:Attachments"/>
+    </t:AdditionalProperties>
+  </m:ItemShape>
+  <m:ItemIds><t:ItemId Id="${xmlEscape(messageId)}"/></m:ItemIds>
+</m:GetItem>`);
+    const response = firstResponseMessage(body, "GetItem");
+    const item = response?.Items?.Message || response?.Items?.MeetingRequest;
+    if (!item) throw new Error("EWS GetItem returned no email message.");
+    const attachments = [
+      ...array(item?.Attachments?.FileAttachment).map((attachment) => normalizeAttachment(attachment, "file")),
+      ...array(item?.Attachments?.ItemAttachment).map((attachment) => normalizeAttachment(attachment, "item")),
+    ].filter((attachment) => attachment.attachment_id);
+    return {
+      mailbox: this.mailbox,
+      message_id: messageId,
+      subject: text(item?.Subject) || "(no subject)",
+      attachment_count: attachments.length,
+      attachments,
+    };
+  }
+
+  async readAttachment({ messageId, attachmentId }) {
+    const listing = await this.listAttachments(messageId);
+    const metadata = listing.attachments.find((attachment) => attachment.attachment_id === attachmentId);
+    if (!metadata) throw new Error("Attachment was not found on the specified message.");
+    if (!metadata.within_reading_limit) {
+      throw new Error(`Attachment exceeds the ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB reading limit.`);
+    }
+    const body = await this.request("GetAttachment", `
+<m:GetAttachment>
+  <m:AttachmentShape>
+    <t:IncludeMimeContent>true</t:IncludeMimeContent>
+    <t:BodyType>Text</t:BodyType>
+  </m:AttachmentShape>
+  <m:AttachmentIds><t:AttachmentId Id="${xmlEscape(attachmentId)}"/></m:AttachmentIds>
+</m:GetAttachment>`);
+    const response = firstResponseMessage(body, "GetAttachment");
+    const file = response?.Attachments?.FileAttachment;
+    if (file) {
+      const extracted = await extractAttachmentContent({
+        name: text(file.Name) || metadata.name,
+        contentType: text(file.ContentType) || metadata.content_type,
+        contentBase64: text(file.Content),
+        kind: "file",
+      });
+      return { mailbox: this.mailbox, message_id: messageId, attachment_id: attachmentId, ...extracted };
+    }
+    const itemAttachment = response?.Attachments?.ItemAttachment;
+    if (itemAttachment) {
+      const attached = itemAttachment.Item || itemAttachment.Message || itemAttachment.MeetingMessage;
+      return {
+        mailbox: this.mailbox,
+        message_id: messageId,
+        attachment_id: attachmentId,
+        name: text(itemAttachment.Name) || metadata.name,
+        content_type: text(itemAttachment.ContentType) || "message/rfc822",
+        size: metadata.size,
+        capability: "attached_email",
+        attached_message: attached ? {
+          date: itemDate(attached),
+          sender: normalizeMailbox(attached?.From?.Mailbox || attached?.Sender?.Mailbox),
+          recipients: {
+            to: normalizeMailboxes(attached?.ToRecipients),
+            cc: normalizeMailboxes(attached?.CcRecipients),
+            bcc: normalizeMailboxes(attached?.BccRecipients),
+          },
+          subject: text(attached?.Subject) || "(no subject)",
+          body: cleanBody(attached?.Body) || null,
+        } : null,
+      };
+    }
+    throw new Error("EWS GetAttachment returned no readable attachment.");
   }
 
   async createReplyDraft({ messageId, textContent }) {
