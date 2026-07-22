@@ -67,6 +67,19 @@ function createServer() {
     catch (error) { return toolError(error); }
   });
 
+  server.registerTool("search_elton_mail", {
+    title: "Search Elton's mail",
+    description: "Read-only. Search the previous 365 days of the configured etucker@metooshoes.com mailbox across Inbox, Sent Items, and Archive. Matches both message subjects and plain-text bodies and returns an opaque cursor when more results are available.",
+    inputSchema: {
+      query: z.string().min(2).max(200).describe("Text or phrase to match in the subject or message body."),
+      page_size: z.number().int().min(1).max(50).default(20).describe("Maximum results to return on this page."),
+      cursor: z.string().min(1).nullable().default(null).describe("Opaque next_cursor from the previous page. Omit for the first page."),
+    },
+  }, async ({ query, page_size, cursor }) => {
+    try { return result(await client.searchMessages({ query, pageSize: page_size, cursor })); }
+    catch (error) { return toolError(error); }
+  });
+
   server.registerTool("create_customer_reply_draft", {
     title: "Save customer reply draft",
     description: `Create a plain-text reply draft in the configured customer-service Drafts folder. This never sends email. After saving, it adds the ${PROCESSED_CATEGORY} category to the source message to prevent duplicate drafts.`,
