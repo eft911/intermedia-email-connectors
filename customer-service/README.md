@@ -7,7 +7,7 @@ Private MCP connector for an Intermedia Hosted Exchange customer-service mailbox
 - `intermedia_health_check` — verifies mailbox access and returns inbox counts.
 - `list_customer_messages` — lists recent/unread messages, excluding previously drafted messages by default.
 - `get_customer_message` — retrieves one message as plain text.
-- `search_elton_mail` — read-only, paginated subject/body search over the previous 365 days in Inbox, Sent Items, and Archive.
+- `search_elton_mail` — read-only, paginated subject/body search over 1, 2, or 3 calendar years in Inbox, Sent Items, and Archive. The default is 1 year.
 - `create_customer_reply_draft` — saves a reply draft and adds the `GPT Drafted` category to the source message.
 
 ## Security design
