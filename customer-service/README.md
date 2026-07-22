@@ -7,6 +7,7 @@ Private MCP connector for an Intermedia Hosted Exchange customer-service mailbox
 - `intermedia_health_check` — verifies mailbox access and returns inbox counts.
 - `list_customer_messages` — lists recent/unread messages, excluding previously drafted messages by default.
 - `get_customer_message` — retrieves one message as plain text.
+- `search_elton_mail` — read-only, paginated subject/body search over the previous 365 days in Inbox, Sent Items, and Archive.
 - `create_customer_reply_draft` — saves a reply draft and adds the `GPT Drafted` category to the source message.
 
 ## Security design
@@ -15,6 +16,7 @@ Private MCP connector for an Intermedia Hosted Exchange customer-service mailbox
 - The EWS endpoint must be HTTPS, end in `/EWS/Exchange.asmx`, and use a `serverdata.net` hostname.
 - The public `/mcp` route returns 404. MCP is exposed only at `/mcp/<MCP_PATH_SECRET>`.
 - There is deliberately no send tool.
+- Mail search performs only EWS folder/item reads and returns an opaque, query-bound pagination cursor.
 - Use a dedicated, least-privileged mailbox credential where possible. Do not commit `.env` or credentials.
 
 ## Required Intermedia details
