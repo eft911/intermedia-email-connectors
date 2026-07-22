@@ -110,8 +110,8 @@ test("searchMessages searches Inbox, Sent Items, and Archive with pagination", a
   assert.match(requests[0], /Traversal="Deep"/);
   assert.match(requests[0], /DisplayName/);
   assert.match(requests[1], /subject:&quot;launch plan&quot; OR body:&quot;launch plan&quot;/);
-  assert.match(requests[1], /received&gt;=2025-07-22/);
-  assert.match(requests[2], /sent&gt;=2025-07-22/);
+  assert.match(requests[1], /received:07\/22\/2025\.\.07\/22\/2026/);
+  assert.match(requests[2], /sent:07\/22\/2025\.\.07\/22\/2026/);
   assert.match(requests[3], /FolderId Id="archive-folder-id"/);
   assert.match(requests[4], /BodyType>Text/);
   assert.equal(requests.some((request) => /CreateItem|UpdateItem|DeleteItem|MoveItem/.test(request)), false);
