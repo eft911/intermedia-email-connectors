@@ -91,6 +91,7 @@ test("searchMessages searches Inbox, Sent Items, and Archive with pagination", a
 
   const result = await client.searchMessages({ query: "launch plan", pageSize: 2 });
   assert.equal(result.mailbox, "etucker@metooshoes.com");
+  assert.equal(result.lookback_years, 1);
   assert.equal(result.searched_since, "2025-07-22T12:00:00.000Z");
   assert.deepEqual(result.folders, ["Inbox", "Sent Items", "Archive"]);
   assert.equal(result.results.length, 2);
@@ -102,7 +103,7 @@ test("searchMessages searches Inbox, Sent Items, and Archive with pagination", a
   assert.match(result.results[0].excerpt, /launch plan/);
   assert.equal(result.has_more, true);
   assert.ok(result.next_cursor);
-  assert.deepEqual(_test.decodeCursor(result.next_cursor, "launch plan"), {
+  assert.deepEqual(_test.decodeCursor(result.next_cursor, "launch plan\u00001"), {
     inbox: 1,
     sentitems: 1,
     archive: 0,
@@ -120,6 +121,42 @@ test("searchMessages searches Inbox, Sent Items, and Archive with pagination", a
 test("search cursors are bound to the original query", () => {
   const cursor = _test.encodeCursor("first query", { inbox: 1, sentitems: 2, archive: 3 });
   assert.throws(() => _test.decodeCursor(cursor, "different query"), /Invalid or expired/);
+});
+
+test("searchMessages supports a three-calendar-year lookback", async () => {
+  const requests = [];
+  const client = new EwsClient({
+    url: "https://east.exch028.serverdata.net/EWS/Exchange.asmx",
+    username: "service@example.com",
+    password: "secret",
+    mailbox: "etucker@metooshoes.com",
+    nowFn: () => new Date("2026-07-22T12:00:00Z"),
+    fetchFn: async (_url, options) => {
+      requests.push(options.body);
+      const next = responses.shift();
+      if (!next) throw new Error("Unexpected request");
+      return next;
+    },
+  });
+  const emptyFindItem = () => response(soap(`<m:FindItemResponse><m:ResponseMessages><m:FindItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:RootFolder IncludesLastItemInRange="true" TotalItemsInView="0"><t:Items/></m:RootFolder></m:FindItemResponseMessage></m:ResponseMessages></m:FindItemResponse>`));
+  const responses = [
+    response(soap(`<m:FindFolderResponse><m:ResponseMessages><m:FindFolderResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:RootFolder IncludesLastItemInRange="true" TotalItemsInView="1"><t:Folders><t:Folder><t:FolderId Id="archive-folder-id"/><t:DisplayName>Archive</t:DisplayName></t:Folder></t:Folders></m:RootFolder></m:FindFolderResponseMessage></m:ResponseMessages></m:FindFolderResponse>`)),
+    emptyFindItem(),
+    emptyFindItem(),
+    emptyFindItem(),
+  ];
+
+  const result = await client.searchMessages({ query: "older project", lookbackYears: 3 });
+  assert.equal(result.lookback_years, 3);
+  assert.equal(result.searched_since, "2023-07-22T12:00:00.000Z");
+  assert.equal(result.results.length, 0);
+  assert.match(requests[1], /received:07\/22\/2023\.\.07\/22\/2026/);
+  assert.match(requests[2], /sent:07\/22\/2023\.\.07\/22\/2026/);
+});
+
+test("searchMessages rejects lookbacks over three years", async () => {
+  const client = clientWith([]);
+  await assert.rejects(() => client.searchMessages({ query: "project", lookbackYears: 4 }), /1, 2, or 3 years/);
 });
 
 test("rejects non-Intermedia EWS URLs", () => {
