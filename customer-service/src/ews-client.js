@@ -426,13 +426,20 @@ export class EwsClient {
     });
   }
 
-  async searchMessages({ query, pageSize = 20, cursor = null }) {
+  async searchMessages({ query, pageSize = 20, cursor = null, lookbackYears = 1 }) {
     const normalizedQuery = String(query || "").trim();
     if (normalizedQuery.length < 2) throw new Error("Search query must contain at least 2 characters.");
     if (normalizedQuery.length > 200) throw new Error("Search query must not exceed 200 characters.");
     const size = Math.min(Math.max(Number(pageSize) || 20, 1), 50);
-    const offsets = decodeCursor(cursor, normalizedQuery);
-    const cutoff = new Date(this.nowFn().getTime() - 365 * 24 * 60 * 60 * 1000);
+    const years = Number(lookbackYears);
+    if (!Number.isInteger(years) || years < 1 || years > 3) {
+      throw new Error("Search lookback must be 1, 2, or 3 years.");
+    }
+    const cursorScope = `${normalizedQuery}\u0000${years}`;
+    const offsets = decodeCursor(cursor, cursorScope);
+    const now = this.nowFn();
+    const cutoff = new Date(now);
+    cutoff.setUTCFullYear(cutoff.getUTCFullYear() - years);
     const archive = await this.resolveArchiveFolder();
     const fetchSize = Math.min(size + 1, 50);
     const folders = [
@@ -462,12 +469,13 @@ export class EwsClient {
     return {
       mailbox: this.mailbox,
       query: normalizedQuery,
+      lookback_years: years,
       searched_since: cutoff.toISOString(),
       folders: folders.map((folder) => folder.label),
       page_size: size,
       results,
       has_more: hasMore,
-      next_cursor: hasMore ? encodeCursor(normalizedQuery, nextOffsets) : null,
+      next_cursor: hasMore ? encodeCursor(cursorScope, nextOffsets) : null,
     };
   }
 
