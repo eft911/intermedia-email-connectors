@@ -159,6 +159,56 @@ test("searchMessages rejects lookbacks over three years", async () => {
   await assert.rejects(() => client.searchMessages({ query: "project", lookbackYears: 4 }), /1, 2, or 3 years/);
 });
 
+test("listAttachments returns safe attachment metadata", async () => {
+  const requests = [];
+  const client = clientWith([response(soap(`<m:GetItemResponse><m:ResponseMessages><m:GetItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:Items><t:Message><t:ItemId Id="message-id"/><t:Subject>Price history</t:Subject><t:Attachments>
+    <t:FileAttachment><t:AttachmentId Id="file-id"/><t:Name>pricing.xlsx</t:Name><t:ContentType>application/vnd.openxmlformats-officedocument.spreadsheetml.sheet</t:ContentType><t:Size>2048</t:Size><t:IsInline>false</t:IsInline></t:FileAttachment>
+    <t:ItemAttachment><t:AttachmentId Id="item-id"/><t:Name>Forwarded message</t:Name><t:Size>1024</t:Size></t:ItemAttachment>
+  </t:Attachments></t:Message></m:Items></m:GetItemResponseMessage></m:ResponseMessages></m:GetItemResponse>`))], requests);
+  const result = await client.listAttachments("message-id");
+  assert.equal(result.attachment_count, 2);
+  assert.deepEqual(result.attachments[0], {
+    attachment_id: "file-id",
+    name: "pricing.xlsx",
+    content_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    size: 2048,
+    is_inline: false,
+    kind: "file",
+    reading_capability: "document_text",
+    within_reading_limit: true,
+  });
+  assert.equal(result.attachments[1].reading_capability, "attached_email");
+  assert.match(requests[0], /item:Attachments/);
+  assert.equal(/CreateItem|UpdateItem|DeleteItem|MoveItem/.test(requests[0]), false);
+});
+
+test("readAttachment retrieves and extracts a text attachment without writes", async () => {
+  const requests = [];
+  const encoded = Buffer.from("Ball park price: $7.65\nMOQ: 15,000").toString("base64");
+  const client = clientWith([
+    response(soap(`<m:GetItemResponse><m:ResponseMessages><m:GetItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:Items><t:Message><t:Subject>Pricing</t:Subject><t:Attachments><t:FileAttachment><t:AttachmentId Id="attachment-id"/><t:Name>pricing.txt</t:Name><t:ContentType>text/plain</t:ContentType><t:Size>35</t:Size></t:FileAttachment></t:Attachments></t:Message></m:Items></m:GetItemResponseMessage></m:ResponseMessages></m:GetItemResponse>`)),
+    response(soap(`<m:GetAttachmentResponse><m:ResponseMessages><m:GetAttachmentResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:Attachments><t:FileAttachment><t:AttachmentId Id="attachment-id"/><t:Name>pricing.txt</t:Name><t:ContentType>text/plain</t:ContentType><t:Content>${encoded}</t:Content></t:FileAttachment></m:Attachments></m:GetAttachmentResponseMessage></m:ResponseMessages></m:GetAttachmentResponse>`)),
+  ], requests);
+  const result = await client.readAttachment({ messageId: "message-id", attachmentId: "attachment-id" });
+  assert.equal(result.capability, "text");
+  assert.match(result.text, /\$7\.65/);
+  assert.equal(result.truncated, false);
+  assert.match(requests[1], /GetAttachment/);
+  assert.equal(requests.some((request) => /CreateItem|UpdateItem|DeleteItem|MoveItem/.test(request)), false);
+});
+
+test("readAttachment expands an attached email", async () => {
+  const client = clientWith([
+    response(soap(`<m:GetItemResponse><m:ResponseMessages><m:GetItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:Items><t:Message><t:Subject>Fwd</t:Subject><t:Attachments><t:ItemAttachment><t:AttachmentId Id="item-id"/><t:Name>Original message</t:Name><t:Size>900</t:Size></t:ItemAttachment></t:Attachments></t:Message></m:Items></m:GetItemResponseMessage></m:ResponseMessages></m:GetItemResponse>`)),
+    response(soap(`<m:GetAttachmentResponse><m:ResponseMessages><m:GetAttachmentResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:Attachments><t:ItemAttachment><t:AttachmentId Id="item-id"/><t:Name>Original message</t:Name><t:Item><t:Subject>Factory quote</t:Subject><t:DateTimeReceived>2026-07-01T10:00:00Z</t:DateTimeReceived><t:From><t:Mailbox><t:Name>Shirley</t:Name><t:EmailAddress>shirley@example.com</t:EmailAddress></t:Mailbox></t:From><t:ToRecipients><t:Mailbox><t:EmailAddress>etucker@metooshoes.com</t:EmailAddress></t:Mailbox></t:ToRecipients><t:Body BodyType="Text">Ball park pricing attached.</t:Body></t:Item></t:ItemAttachment></m:Attachments></m:GetAttachmentResponseMessage></m:ResponseMessages></m:GetAttachmentResponse>`)),
+  ]);
+  const result = await client.readAttachment({ messageId: "message-id", attachmentId: "item-id" });
+  assert.equal(result.capability, "attached_email");
+  assert.equal(result.attached_message.subject, "Factory quote");
+  assert.equal(result.attached_message.sender.email, "shirley@example.com");
+  assert.match(result.attached_message.body, /Ball park pricing/);
+});
+
 test("rejects non-Intermedia EWS URLs", () => {
   assert.throws(() => new EwsClient({
     url: "https://evil.example/EWS/Exchange.asmx",
