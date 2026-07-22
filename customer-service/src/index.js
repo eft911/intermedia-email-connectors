@@ -14,6 +14,13 @@ function result(value) {
   };
 }
 
+function attachmentResult(value) {
+  const { image_base64: imageBase64, ...metadata } = value;
+  const content = [{ type: "text", text: JSON.stringify(metadata, null, 2) }];
+  if (imageBase64) content.push({ type: "image", data: imageBase64, mimeType: value.content_type });
+  return { content, structuredContent: metadata };
+}
+
 function toolError(error) {
   return {
     isError: true,
@@ -24,7 +31,7 @@ function toolError(error) {
 function createServer() {
   const server = new McpServer({
     name: "intermedia-exchange-connector",
-    version: "0.3.0",
+    version: "0.4.0",
   });
 
   server.registerTool("intermedia_health_check", {
@@ -81,6 +88,29 @@ function createServer() {
     catch (error) { return toolError(error); }
   });
 
+  server.registerTool("list_elton_attachments", {
+    title: "List Elton email attachments",
+    description: "Read-only. List every file or attached-email attachment on a specified etucker@metooshoes.com message, including name, type, size, and reading capability.",
+    inputSchema: {
+      message_id: z.string().min(1).describe("Opaque EWS message ID returned by a mail search or message list."),
+    },
+  }, async ({ message_id }) => {
+    try { return result(await client.listAttachments(message_id)); }
+    catch (error) { return toolError(error); }
+  });
+
+  server.registerTool("read_elton_attachment", {
+    title: "Read Elton email attachment",
+    description: "Read-only. Read one attachment from an etucker@metooshoes.com message. Extracts text from common PDF, Word, Excel, PowerPoint, OpenDocument, RTF, CSV, HTML, Markdown, and text/data formats; returns common images visually; and expands attached emails. Maximum size is 10 MB.",
+    inputSchema: {
+      message_id: z.string().min(1).describe("Opaque EWS message ID containing the attachment."),
+      attachment_id: z.string().min(1).describe("Opaque EWS attachment ID returned by list_elton_attachments."),
+    },
+  }, async ({ message_id, attachment_id }) => {
+    try { return attachmentResult(await client.readAttachment({ messageId: message_id, attachmentId: attachment_id })); }
+    catch (error) { return toolError(error); }
+  });
+
   server.registerTool("create_customer_reply_draft", {
     title: "Save customer reply draft",
     description: `Create a plain-text reply draft in the configured customer-service Drafts folder. This never sends email. After saving, it adds the ${PROCESSED_CATEGORY} category to the source message to prevent duplicate drafts.`,
@@ -106,8 +136,8 @@ app.get("/health", (_req, res) => {
   res.json({
     ok: true,
     service: "intermedia-exchange-connector",
-    version: "0.3.0",
-    features: ["search_elton_mail"],
+    version: "0.4.0",
+    features: ["search_elton_mail", "list_elton_attachments", "read_elton_attachment"],
   });
 });
 
