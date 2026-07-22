@@ -24,7 +24,7 @@ function toolError(error) {
 function createServer() {
   const server = new McpServer({
     name: "intermedia-exchange-connector",
-    version: "0.2.0",
+    version: "0.3.0",
   });
 
   server.registerTool("intermedia_health_check", {
@@ -69,14 +69,15 @@ function createServer() {
 
   server.registerTool("search_elton_mail", {
     title: "Search Elton's mail",
-    description: "Read-only. Search the previous 365 days of the configured etucker@metooshoes.com mailbox across Inbox, Sent Items, and Archive. Matches both message subjects and plain-text bodies and returns an opaque cursor when more results are available.",
+    description: "Read-only. Search 1, 2, or 3 years of the configured etucker@metooshoes.com mailbox across Inbox, Sent Items, and Archive. Matches both message subjects and plain-text bodies and returns an opaque cursor when more results are available.",
     inputSchema: {
       query: z.string().min(2).max(200).describe("Text or phrase to match in the subject or message body."),
+      lookback_years: z.number().int().min(1).max(3).default(1).describe("Number of calendar years to search: 1, 2, or 3."),
       page_size: z.number().int().min(1).max(50).default(20).describe("Maximum results to return on this page."),
       cursor: z.string().min(1).nullable().default(null).describe("Opaque next_cursor from the previous page. Omit for the first page."),
     },
-  }, async ({ query, page_size, cursor }) => {
-    try { return result(await client.searchMessages({ query, pageSize: page_size, cursor })); }
+  }, async ({ query, lookback_years, page_size, cursor }) => {
+    try { return result(await client.searchMessages({ query, lookbackYears: lookback_years, pageSize: page_size, cursor })); }
     catch (error) { return toolError(error); }
   });
 
@@ -105,7 +106,7 @@ app.get("/health", (_req, res) => {
   res.json({
     ok: true,
     service: "intermedia-exchange-connector",
-    version: "0.2.0",
+    version: "0.3.0",
     features: ["search_elton_mail"],
   });
 });
