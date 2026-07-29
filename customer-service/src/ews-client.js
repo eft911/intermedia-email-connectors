@@ -648,6 +648,155 @@ export class EwsClient {
     };
   }
 
+  async findDraftsBySubject(subject, maxResults = 250) {
+    const body = await this.request("FindItem", `
+<m:FindItem Traversal="Shallow">
+  <m:ItemShape>
+    <t:BaseShape>IdOnly</t:BaseShape>
+    <t:AdditionalProperties>
+      <t:FieldURI FieldURI="item:Subject"/>
+      <t:FieldURI FieldURI="item:DateTimeCreated"/>
+    </t:AdditionalProperties>
+  </m:ItemShape>
+  <m:IndexedPageItemView MaxEntriesReturned="${maxResults}" Offset="0" BasePoint="Beginning"/>
+  <m:Restriction>
+    <t:IsEqualTo>
+      <t:FieldURI FieldURI="item:Subject"/>
+      <t:FieldURIOrConstant><t:Constant Value="${xmlEscape(subject)}"/></t:FieldURIOrConstant>
+    </t:IsEqualTo>
+  </m:Restriction>
+  <m:ParentFolderIds>${folderIdXml(this.mailbox, "drafts")}</m:ParentFolderIds>
+</m:FindItem>`);
+    const responseMessage = firstResponseMessage(body, "FindItem");
+    const root = responseMessage?.RootFolder;
+    const items = array(root?.Items?.Message);
+    return {
+      total: Number(root?.["@_TotalItemsInView"] || items.length),
+      includes_last_item: String(root?.["@_IncludesLastItemInRange"]).toLowerCase() === "true",
+      drafts: items.map((item) => ({
+        id: item?.ItemId?.["@_Id"] || "",
+        change_key: item?.ItemId?.["@_ChangeKey"] || "",
+        subject: text(item?.Subject) || "(no subject)",
+        created_at: text(item?.DateTimeCreated) || null,
+      })),
+    };
+  }
+
+  async getDrafts(items) {
+    if (!items.length) return [];
+    const body = await this.request("GetItem", `
+<m:GetItem>
+  <m:ItemShape>
+    <t:BaseShape>IdOnly</t:BaseShape>
+    <t:BodyType>Text</t:BodyType>
+    <t:AdditionalProperties>
+      <t:FieldURI FieldURI="item:Subject"/>
+      <t:FieldURI FieldURI="item:Body"/>
+      <t:FieldURI FieldURI="message:ToRecipients"/>
+      <t:FieldURI FieldURI="message:CcRecipients"/>
+      <t:FieldURI FieldURI="message:BccRecipients"/>
+    </t:AdditionalProperties>
+  </m:ItemShape>
+  <m:ItemIds>${items.map((item) => `<t:ItemId Id="${xmlEscape(item.id)}" ChangeKey="${xmlEscape(item.change_key)}"/>`).join("")}</m:ItemIds>
+</m:GetItem>`);
+    return responseMessages(body, "GetItem").flatMap((message) => array(message?.Items?.Message)).map((item) => ({
+      id: item?.ItemId?.["@_Id"] || "",
+      change_key: item?.ItemId?.["@_ChangeKey"] || "",
+      subject: text(item?.Subject) || "(no subject)",
+      body: text(item?.Body) || "",
+      to: normalizeMailboxes(item?.ToRecipients),
+      cc: normalizeMailboxes(item?.CcRecipients),
+      bcc: normalizeMailboxes(item?.BccRecipients),
+    }));
+  }
+
+  async updateDraftBody({ id, changeKey, textContent }) {
+    const body = await this.request("UpdateItem", `
+<m:UpdateItem ConflictResolution="AutoResolve" MessageDisposition="SaveOnly">
+  <m:ItemChanges>
+    <t:ItemChange>
+      <t:ItemId Id="${xmlEscape(id)}" ChangeKey="${xmlEscape(changeKey)}"/>
+      <t:Updates>
+        <t:SetItemField>
+          <t:FieldURI FieldURI="item:Body"/>
+          <t:Message><t:Body BodyType="Text">${xmlEscape(textContent)}</t:Body></t:Message>
+        </t:SetItemField>
+      </t:Updates>
+    </t:ItemChange>
+  </m:ItemChanges>
+</m:UpdateItem>`);
+    const responseMessage = firstResponseMessage(body, "UpdateItem");
+    const itemId = responseMessage?.Items?.Message?.ItemId;
+    return {
+      id: itemId?.["@_Id"] || id,
+      change_key: itemId?.["@_ChangeKey"] || changeKey,
+    };
+  }
+
+  async sendDraft({ id, changeKey }) {
+    const body = await this.request("SendItem", `
+<m:SendItem SaveItemToFolder="true">
+  <m:ItemIds><t:ItemId Id="${xmlEscape(id)}" ChangeKey="${xmlEscape(changeKey)}"/></m:ItemIds>
+  <m:SavedItemFolderId>${folderIdXml(this.mailbox, "sentitems")}</m:SavedItemFolderId>
+</m:SendItem>`);
+    firstResponseMessage(body, "SendItem");
+    return { sent: true, id };
+  }
+
+  async finalizeOutreachDrafts({ subject, expectedCount, oldSignature, newSignature }) {
+    const found = await this.findDraftsBySubject(subject, 250);
+    if (!found.includes_last_item || found.total !== found.drafts.length) {
+      throw new Error("The matching draft set exceeded the connector safety limit.");
+    }
+    if (found.drafts.length !== expectedCount) {
+      throw new Error(`Expected ${expectedCount} matching drafts but found ${found.drafts.length}. No drafts were changed or sent.`);
+    }
+    const drafts = await this.getDrafts(found.drafts);
+    if (drafts.length !== expectedCount) {
+      throw new Error(`Expected to read ${expectedCount} matching drafts but retrieved ${drafts.length}. No drafts were changed or sent.`);
+    }
+    const invalid = drafts.filter((draft) => !draft.body.endsWith(oldSignature) || draft.to.length === 0);
+    if (invalid.length) {
+      throw new Error(`${invalid.length} matching drafts failed signature or recipient validation. No drafts were changed or sent.`);
+    }
+
+    const results = new Array(drafts.length);
+    let nextIndex = 0;
+    const worker = async () => {
+      while (nextIndex < drafts.length) {
+        const index = nextIndex++;
+        const draft = drafts[index];
+        try {
+          const updated = await this.updateDraftBody({
+            id: draft.id,
+            changeKey: draft.change_key,
+            textContent: `${draft.body.slice(0, -oldSignature.length)}${newSignature}`,
+          });
+          await this.sendDraft({ id: updated.id, changeKey: updated.change_key });
+          results[index] = { sent: true, recipient: draft.to[0]?.email || null };
+        } catch (error) {
+          results[index] = {
+            sent: false,
+            recipient: draft.to[0]?.email || null,
+            error: error instanceof Error ? error.message : "Unknown EWS error",
+          };
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(5, drafts.length) }, () => worker()));
+    const failures = results.filter((item) => !item.sent);
+    return {
+      mailbox: this.mailbox,
+      subject,
+      expected_count: expectedCount,
+      sent_count: results.length - failures.length,
+      failed_count: failures.length,
+      failures,
+      signature_changed_from: oldSignature,
+      signature_changed_to: newSignature,
+    };
+  }
+
   async addProcessedCategory(source) {
     const categories = [...new Set([...source.categories, PROCESSED_CATEGORY])];
     const categoryXml = categories.map((category) => `<t:String>${xmlEscape(category)}</t:String>`).join("");
