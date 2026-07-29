@@ -1,6 +1,6 @@
 # Intermedia Exchange Connector
 
-Private MCP connector for an Intermedia Hosted Exchange customer-service mailbox. It can read recent mail and save plain-text reply drafts. It has no send-email capability.
+Private MCP connector for an Intermedia Hosted Exchange mailbox. It can read mail and save plain-text reply or new-message drafts. It has no send-email capability.
 
 ## Tools
 
@@ -11,6 +11,7 @@ Private MCP connector for an Intermedia Hosted Exchange customer-service mailbox
 - `list_elton_attachments` — lists file and attached-email attachments, including type, size, and reading capability.
 - `read_elton_attachment` — extracts text from common document/data formats, returns images visually, and expands attached emails. Files are read in memory with a 10 MB limit.
 - `create_customer_reply_draft` — saves a reply draft and adds the `GPT Drafted` category to the source message.
+- `create_elton_email_draft` — saves a new outbound plain-text message in Elton's Drafts folder without sending it.
 
 ## Security design
 
@@ -18,6 +19,7 @@ Private MCP connector for an Intermedia Hosted Exchange customer-service mailbox
 - The EWS endpoint must be HTTPS, end in `/EWS/Exchange.asmx`, and use a `serverdata.net` hostname.
 - The public `/mcp` route returns 404. MCP is exposed only at `/mcp/<MCP_PATH_SECRET>`.
 - There is deliberately no send tool.
+- Both draft actions use EWS `MessageDisposition="SaveOnly"`.
 - Mail search performs only EWS folder/item reads and returns an opaque, query-bound pagination cursor.
 - Attachment access performs only EWS `GetItem` and `GetAttachment` reads. Attachment bytes are not saved to disk or written back to Exchange.
 - Use a dedicated, least-privileged mailbox credential where possible. Do not commit `.env` or credentials.
