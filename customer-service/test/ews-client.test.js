@@ -87,6 +87,58 @@ test("createEmailDraft saves a new outbound message without sending", async () =
   assert.doesNotMatch(requests[0], /SendOnly|SendAndSaveCopy/);
 });
 
+test("finalizeOutreachDrafts validates, updates signatures, and sends reviewed drafts", async () => {
+  const requests = [];
+  const client = clientWith([
+    response(soap(`<m:FindItemResponse><m:ResponseMessages><m:FindItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:RootFolder IncludesLastItemInRange="true" TotalItemsInView="2"><t:Items>
+      <t:Message><t:ItemId Id="draft-1" ChangeKey="ck-1"/><t:Subject>Footwear Development &amp; Production</t:Subject></t:Message>
+      <t:Message><t:ItemId Id="draft-2" ChangeKey="ck-2"/><t:Subject>Footwear Development &amp; Production</t:Subject></t:Message>
+    </t:Items></m:RootFolder></m:FindItemResponseMessage></m:ResponseMessages></m:FindItemResponse>`)),
+    response(soap(`<m:GetItemResponse><m:ResponseMessages>
+      <m:GetItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:Items><t:Message><t:ItemId Id="draft-1" ChangeKey="ck-1"/><t:Subject>Footwear Development &amp; Production</t:Subject><t:Body BodyType="Text">Hi A
+
+Thanks,
+Elton</t:Body><t:ToRecipients><t:Mailbox><t:EmailAddress>a@example.com</t:EmailAddress></t:Mailbox></t:ToRecipients></t:Message></m:Items></m:GetItemResponseMessage>
+      <m:GetItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:Items><t:Message><t:ItemId Id="draft-2" ChangeKey="ck-2"/><t:Subject>Footwear Development &amp; Production</t:Subject><t:Body BodyType="Text">Hi B
+
+Thanks,
+Elton</t:Body><t:ToRecipients><t:Mailbox><t:EmailAddress>b@example.com</t:EmailAddress></t:Mailbox></t:ToRecipients></t:Message></m:Items></m:GetItemResponseMessage>
+    </m:ResponseMessages></m:GetItemResponse>`)),
+    response(soap(`<m:UpdateItemResponse><m:ResponseMessages><m:UpdateItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:Items><t:Message><t:ItemId Id="draft-1" ChangeKey="new-ck-1"/></t:Message></m:Items></m:UpdateItemResponseMessage></m:ResponseMessages></m:UpdateItemResponse>`)),
+    response(soap(`<m:UpdateItemResponse><m:ResponseMessages><m:UpdateItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:Items><t:Message><t:ItemId Id="draft-2" ChangeKey="new-ck-2"/></t:Message></m:Items></m:UpdateItemResponseMessage></m:ResponseMessages></m:UpdateItemResponse>`)),
+    response(soap(`<m:SendItemResponse><m:ResponseMessages><m:SendItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode></m:SendItemResponseMessage></m:ResponseMessages></m:SendItemResponse>`)),
+    response(soap(`<m:SendItemResponse><m:ResponseMessages><m:SendItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode></m:SendItemResponseMessage></m:ResponseMessages></m:SendItemResponse>`)),
+  ], requests);
+  const result = await client.finalizeOutreachDrafts({
+    subject: "Footwear Development & Production",
+    expectedCount: 2,
+    oldSignature: "\nElton",
+    newSignature: "\nElton Tucker",
+  });
+  assert.equal(result.sent_count, 2);
+  assert.equal(result.failed_count, 0);
+  assert.match(requests[0], /DistinguishedFolderId Id="drafts"/);
+  assert.match(requests[0], /Footwear Development &amp; Production/);
+  assert.match(requests[2], /Elton Tucker/);
+  assert.match(requests[4], /SaveItemToFolder="true"/);
+  assert.match(requests[4], /DistinguishedFolderId Id="sentitems"/);
+});
+
+test("finalizeOutreachDrafts refuses a count mismatch before any write", async () => {
+  const requests = [];
+  const client = clientWith([
+    response(soap(`<m:FindItemResponse><m:ResponseMessages><m:FindItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:RootFolder IncludesLastItemInRange="true" TotalItemsInView="1"><t:Items><t:Message><t:ItemId Id="draft-1" ChangeKey="ck-1"/><t:Subject>Footwear Development</t:Subject></t:Message></t:Items></m:RootFolder></m:FindItemResponseMessage></m:ResponseMessages></m:FindItemResponse>`)),
+  ], requests);
+  await assert.rejects(() => client.finalizeOutreachDrafts({
+    subject: "Footwear Development",
+    expectedCount: 2,
+    oldSignature: "\nElton",
+    newSignature: "\nElton Tucker",
+  }), /Expected 2 matching drafts but found 1/);
+  assert.equal(requests.length, 1);
+  assert.equal(requests.some((request) => /UpdateItem|SendItem/.test(request)), false);
+});
+
 test("searchMessages searches Inbox, Sent Items, and Archive with pagination", async () => {
   const requests = [];
   const client = new EwsClient({
