@@ -63,6 +63,30 @@ test("createReplyDraft saves only and categorizes source", async () => {
   assert.match(requests[2], /GPT Drafted/);
 });
 
+test("createEmailDraft saves a new outbound message without sending", async () => {
+  const requests = [];
+  const client = clientWith([
+    response(soap(`<m:CreateItemResponse><m:ResponseMessages><m:CreateItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:Items><t:Message><t:ItemId Id="new-draft-id" ChangeKey="draft-ck"/></t:Message></m:Items></m:CreateItemResponseMessage></m:ResponseMessages></m:CreateItemResponse>`)),
+  ], requests);
+  const result = await client.createEmailDraft({
+    to: ["buyer@example.com"],
+    cc: ["sales@example.com"],
+    bcc: [],
+    subject: "A & B footwear",
+    textContent: "Hello <Buyer>,\n\nA fresh idea for you.",
+  });
+  assert.equal(result.created, true);
+  assert.equal(result.draft_id, "new-draft-id");
+  assert.deepEqual(result.to, ["buyer@example.com"]);
+  assert.match(requests[0], /MessageDisposition="SaveOnly"/);
+  assert.match(requests[0], /DistinguishedFolderId Id="drafts"/);
+  assert.match(requests[0], /buyer@example\.com/);
+  assert.match(requests[0], /sales@example\.com/);
+  assert.match(requests[0], /A &amp; B footwear/);
+  assert.match(requests[0], /Hello &lt;Buyer&gt;/);
+  assert.doesNotMatch(requests[0], /SendOnly|SendAndSaveCopy/);
+});
+
 test("searchMessages searches Inbox, Sent Items, and Archive with pagination", async () => {
   const requests = [];
   const client = new EwsClient({

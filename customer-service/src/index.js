@@ -31,7 +31,7 @@ function toolError(error) {
 function createServer() {
   const server = new McpServer({
     name: "intermedia-exchange-connector",
-    version: "0.4.0",
+    version: "0.5.0",
   });
 
   server.registerTool("intermedia_health_check", {
@@ -123,6 +123,28 @@ function createServer() {
     catch (error) { return toolError(error); }
   });
 
+  server.registerTool("create_elton_email_draft", {
+    title: "Save Elton outbound email draft",
+    description: "Create a new plain-text outbound email draft in the configured etucker@metooshoes.com Drafts folder. This action only saves a draft and never sends email.",
+    inputSchema: {
+      to: z.array(z.email()).min(1).max(50).describe("Recipient email addresses. At least one is required."),
+      cc: z.array(z.email()).max(50).default([]).describe("Optional CC recipient email addresses."),
+      bcc: z.array(z.email()).max(50).default([]).describe("Optional BCC recipient email addresses."),
+      subject: z.string().min(1).max(255).describe("Email subject."),
+      text_content: z.string().min(1).max(20_000).describe("Plain-text email body. Do not include private notes."),
+    },
+  }, async ({ to, cc, bcc, subject, text_content }) => {
+    try {
+      return result(await client.createEmailDraft({
+        to,
+        cc,
+        bcc,
+        subject,
+        textContent: text_content,
+      }));
+    } catch (error) { return toolError(error); }
+  });
+
   return server;
 }
 
@@ -136,8 +158,8 @@ app.get("/health", (_req, res) => {
   res.json({
     ok: true,
     service: "intermedia-exchange-connector",
-    version: "0.4.0",
-    features: ["search_elton_mail", "list_elton_attachments", "read_elton_attachment"],
+    version: "0.5.0",
+    features: ["search_elton_mail", "list_elton_attachments", "read_elton_attachment", "create_elton_email_draft"],
   });
 });
 
