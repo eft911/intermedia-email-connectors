@@ -617,6 +617,37 @@ export class EwsClient {
     };
   }
 
+  async createEmailDraft({ to, cc = [], bcc = [], subject, textContent }) {
+    const recipientXml = (recipients, field) => {
+      if (!recipients.length) return "";
+      return `<t:${field}>${recipients.map((email) => `<t:Mailbox><t:EmailAddress>${xmlEscape(email)}</t:EmailAddress></t:Mailbox>`).join("")}</t:${field}>`;
+    };
+    const body = await this.request("CreateItem", `
+<m:CreateItem MessageDisposition="SaveOnly">
+  <m:SavedItemFolderId>${folderIdXml(this.mailbox, "drafts")}</m:SavedItemFolderId>
+  <m:Items>
+    <t:Message>
+      <t:Subject>${xmlEscape(subject)}</t:Subject>
+      <t:Body BodyType="Text">${xmlEscape(textContent)}</t:Body>
+      ${recipientXml(to, "ToRecipients")}
+      ${recipientXml(cc, "CcRecipients")}
+      ${recipientXml(bcc, "BccRecipients")}
+    </t:Message>
+  </m:Items>
+</m:CreateItem>`);
+    const responseMessage = firstResponseMessage(body, "CreateItem");
+    const draftItemId = responseMessage?.Items?.Message?.ItemId;
+    return {
+      created: true,
+      mailbox: this.mailbox,
+      draft_id: draftItemId?.["@_Id"] || null,
+      to,
+      cc,
+      bcc,
+      subject,
+    };
+  }
+
   async addProcessedCategory(source) {
     const categories = [...new Set([...source.categories, PROCESSED_CATEGORY])];
     const categoryXml = categories.map((category) => `<t:String>${xmlEscape(category)}</t:String>`).join("");
