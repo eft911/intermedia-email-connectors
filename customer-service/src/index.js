@@ -145,6 +145,27 @@ function createServer() {
     } catch (error) { return toolError(error); }
   });
 
+  server.registerTool("finalize_elton_outreach_drafts", {
+    title: "Update and send reviewed Elton outreach drafts",
+    description: "Send reviewed outreach drafts from etucker@metooshoes.com. Before any write, this action requires an exact subject match, exact expected draft count, a trailing signature match, and at least one recipient on every draft. It replaces only that trailing signature, sends the drafts, and saves copies in Sent Items.",
+    inputSchema: {
+      subject: z.string().min(1).max(255).describe("Exact subject shared by the reviewed outreach drafts."),
+      expected_count: z.number().int().min(1).max(250).describe("Exact number of matching drafts required. If the count differs, nothing is changed or sent."),
+      old_signature: z.string().min(1).max(200).describe("Exact trailing signature currently present on every matching draft, including any leading newline."),
+      new_signature: z.string().min(1).max(200).describe("Replacement trailing signature, including any leading newline."),
+      confirm_send: z.literal(true).describe("Must be true to confirm that the reviewed drafts should be sent now."),
+    },
+  }, async ({ subject, expected_count, old_signature, new_signature }) => {
+    try {
+      return result(await client.finalizeOutreachDrafts({
+        subject,
+        expectedCount: expected_count,
+        oldSignature: old_signature,
+        newSignature: new_signature,
+      }));
+    } catch (error) { return toolError(error); }
+  });
+
   return server;
 }
 
@@ -159,7 +180,7 @@ app.get("/health", (_req, res) => {
     ok: true,
     service: "intermedia-exchange-connector",
     version: "0.5.0",
-    features: ["search_elton_mail", "list_elton_attachments", "read_elton_attachment", "create_elton_email_draft"],
+    features: ["search_elton_mail", "list_elton_attachments", "read_elton_attachment", "create_elton_email_draft", "finalize_elton_outreach_drafts"],
   });
 });
 
