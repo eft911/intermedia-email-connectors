@@ -139,6 +139,35 @@ test("finalizeOutreachDrafts refuses a count mismatch before any write", async (
   assert.equal(requests.some((request) => /UpdateItem|SendItem/.test(request)), false);
 });
 
+test("finalizeOutreachDrafts skips an invalid draft and sends valid drafts", async () => {
+  const requests = [];
+  const client = clientWith([
+    response(soap(`<m:FindItemResponse><m:ResponseMessages><m:FindItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:RootFolder IncludesLastItemInRange="true" TotalItemsInView="2"><t:Items>
+      <t:Message><t:ItemId Id="valid" ChangeKey="ck-valid"/><t:Subject>Outreach</t:Subject></t:Message>
+      <t:Message><t:ItemId Id="invalid" ChangeKey="ck-invalid"/><t:Subject>Outreach</t:Subject></t:Message>
+    </t:Items></m:RootFolder></m:FindItemResponseMessage></m:ResponseMessages></m:FindItemResponse>`)),
+    response(soap(`<m:GetItemResponse><m:ResponseMessages>
+      <m:GetItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:Items><t:Message><t:ItemId Id="valid" ChangeKey="ck-valid"/><t:Body BodyType="Text">Thanks,
+Elton</t:Body><t:ToRecipients><t:Mailbox><t:EmailAddress>valid@example.com</t:EmailAddress></t:Mailbox></t:ToRecipients></t:Message></m:Items></m:GetItemResponseMessage>
+      <m:GetItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:Items><t:Message><t:ItemId Id="invalid" ChangeKey="ck-invalid"/><t:Body BodyType="Text">Changed signature</t:Body></t:Message></m:Items></m:GetItemResponseMessage>
+    </m:ResponseMessages></m:GetItemResponse>`)),
+    response(soap(`<m:UpdateItemResponse><m:ResponseMessages><m:UpdateItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:Items><t:Message><t:ItemId Id="valid" ChangeKey="new-ck"/></t:Message></m:Items></m:UpdateItemResponseMessage></m:ResponseMessages></m:UpdateItemResponse>`)),
+    response(soap(`<m:SendItemResponse><m:ResponseMessages><m:SendItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode></m:SendItemResponseMessage></m:ResponseMessages></m:SendItemResponse>`)),
+  ], requests);
+  const result = await client.finalizeOutreachDrafts({
+    subject: "Outreach",
+    expectedCount: 2,
+    oldSignature: "Elton",
+    newSignature: "Elton Tucker",
+  });
+  assert.equal(result.sent_count, 1);
+  assert.equal(result.failed_count, 1);
+  assert.equal(result.failures[0].recipient, null);
+  assert.match(result.failures[0].error, /signature.*recipient/);
+  assert.equal(requests.filter((request) => /UpdateItem/.test(request)).length, 1);
+  assert.equal(requests.filter((request) => /SendItem/.test(request)).length, 1);
+});
+
 test("searchMessages searches Inbox, Sent Items, and Archive with pagination", async () => {
   const requests = [];
   const client = new EwsClient({
