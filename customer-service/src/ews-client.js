@@ -7,6 +7,15 @@ const MESSAGES_NS = "http://schemas.microsoft.com/exchange/services/2006/message
 const TYPES_NS = "http://schemas.microsoft.com/exchange/services/2006/types";
 const DEFAULT_TIMEOUT_MS = 25_000;
 export const PROCESSED_CATEGORY = "GPT Drafted";
+export const SUPPRESSED_RECIPIENTS = new Map([
+  ["spinto@chineselaundry.com", "Delivery failure on 2026-07-30"],
+  ["aprizant@chineselaundry.com", "Delivery failure on 2026-07-30"],
+  ["mhiller@charter.net", "Delivery failure on 2026-07-30"],
+  ["nader@oliviamiller.com", "Delivery failure on 2026-07-30"],
+  ["leslie.corbin@rockybrands.com", "Automatic reply: no longer with company on 2026-07-30"],
+  ["ntaylor@toppickglobal.com", "Automatic reply: no longer with company on 2026-07-30"],
+  ["alysha@billyfootwear.com", "Automatic reply: no longer with company on 2026-07-30"],
+]);
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -618,6 +627,12 @@ export class EwsClient {
   }
 
   async createEmailDraft({ to, cc = [], bcc = [], subject, textContent }) {
+    const suppressed = [...to, ...cc, ...bcc]
+      .map((email) => email.toLocaleLowerCase())
+      .filter((email) => SUPPRESSED_RECIPIENTS.has(email));
+    if (suppressed.length) {
+      throw new Error(`Suppressed recipient(s) cannot be drafted: ${[...new Set(suppressed)].join(", ")}`);
+    }
     const recipientXml = (recipients, field) => {
       if (!recipients.length) return "";
       return `<t:${field}>${recipients.map((email) => `<t:Mailbox><t:EmailAddress>${xmlEscape(email)}</t:EmailAddress></t:Mailbox>`).join("")}</t:${field}>`;
@@ -762,6 +777,10 @@ export class EwsClient {
       const errors = [];
       if (!draft.body.endsWith(oldSignature)) errors.push("trailing signature did not match");
       if (draft.to.length === 0) errors.push("recipient was missing");
+      const suppressed = draft.to
+        .map((recipient) => recipient.email?.toLocaleLowerCase())
+        .filter((email) => email && SUPPRESSED_RECIPIENTS.has(email));
+      if (suppressed.length) errors.push(`recipient is suppressed: ${[...new Set(suppressed)].join(", ")}`);
       if (errors.length) {
         results[index] = {
           sent: false,
