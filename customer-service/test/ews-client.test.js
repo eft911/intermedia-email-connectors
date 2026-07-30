@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EwsClient, PROCESSED_CATEGORY, SUPPRESSED_RECIPIENTS, _test } from "../src/ews-client.js";
+import { EwsClient, PROCESSED_CATEGORY, SUPPRESSED_RECIPIENTS, SUPPRESSED_RECIPIENT_DOMAINS, _test } from "../src/ews-client.js";
 
 function soap(inner) {
   return `<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"><s:Body>${inner}</s:Body></s:Envelope>`;
@@ -98,6 +98,12 @@ test("suppressed recipients cannot be drafted", async () => {
   assert.equal(SUPPRESSED_RECIPIENTS.has("shkatan@aol.com"), true);
   await assert.rejects(() => client.createEmailDraft({
     to: ["shkatan@aol.com"],
+    subject: "Outreach",
+    textContent: "Hello",
+  }), /Suppressed recipient/);
+  assert.equal(SUPPRESSED_RECIPIENT_DOMAINS.has("pb5star.com"), true);
+  await assert.rejects(() => client.createEmailDraft({
+    to: ["anyone@PB5STAR.com"],
     subject: "Outreach",
     textContent: "Hello",
   }), /Suppressed recipient/);
