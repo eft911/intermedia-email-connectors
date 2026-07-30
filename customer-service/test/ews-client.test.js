@@ -101,6 +101,14 @@ test("suppressed recipients cannot be drafted", async () => {
     subject: "Outreach",
     textContent: "Hello",
   }), /Suppressed recipient/);
+  for (const email of [
+    "jbancroft@propetusa.com",
+    "jbrookings@propetusa.com",
+    "todd.combs@keenfootwear.com",
+    "lbalfour@superfeet.com",
+  ]) {
+    assert.equal(SUPPRESSED_RECIPIENTS.has(email), true);
+  }
   assert.equal(SUPPRESSED_RECIPIENT_DOMAINS.has("pb5star.com"), true);
   await assert.rejects(() => client.createEmailDraft({
     to: ["anyone@PB5STAR.com"],
