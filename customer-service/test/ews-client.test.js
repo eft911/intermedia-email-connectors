@@ -106,6 +106,9 @@ test("suppressed recipients cannot be drafted", async () => {
     "jbrookings@propetusa.com",
     "todd.combs@keenfootwear.com",
     "lbalfour@superfeet.com",
+    "josh@erhcoin.com",
+    "rodney@erhcoin.com",
+    "susana.ramlie@blacksoneshoes.com",
   ]) {
     assert.equal(SUPPRESSED_RECIPIENTS.has(email), true);
   }
