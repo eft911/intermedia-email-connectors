@@ -755,16 +755,28 @@ export class EwsClient {
     if (drafts.length !== expectedCount) {
       throw new Error(`Expected to read ${expectedCount} matching drafts but retrieved ${drafts.length}. No drafts were changed or sent.`);
     }
-    const invalid = drafts.filter((draft) => !draft.body.endsWith(oldSignature) || draft.to.length === 0);
-    if (invalid.length) {
-      throw new Error(`${invalid.length} matching drafts failed signature or recipient validation. No drafts were changed or sent.`);
+    const results = new Array(drafts.length);
+    const validIndexes = [];
+    for (let index = 0; index < drafts.length; index += 1) {
+      const draft = drafts[index];
+      const errors = [];
+      if (!draft.body.endsWith(oldSignature)) errors.push("trailing signature did not match");
+      if (draft.to.length === 0) errors.push("recipient was missing");
+      if (errors.length) {
+        results[index] = {
+          sent: false,
+          recipient: draft.to[0]?.email || null,
+          error: errors.join("; "),
+        };
+      } else {
+        validIndexes.push(index);
+      }
     }
 
-    const results = new Array(drafts.length);
-    let nextIndex = 0;
+    let nextValidIndex = 0;
     const worker = async () => {
-      while (nextIndex < drafts.length) {
-        const index = nextIndex++;
+      while (nextValidIndex < validIndexes.length) {
+        const index = validIndexes[nextValidIndex++];
         const draft = drafts[index];
         try {
           const updated = await this.updateDraftBody({
