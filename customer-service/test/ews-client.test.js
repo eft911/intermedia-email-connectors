@@ -95,6 +95,12 @@ test("suppressed recipients cannot be drafted", async () => {
     subject: "Outreach",
     textContent: "Hello",
   }), /Suppressed recipient/);
+  assert.equal(SUPPRESSED_RECIPIENTS.has("shkatan@aol.com"), true);
+  await assert.rejects(() => client.createEmailDraft({
+    to: ["shkatan@aol.com"],
+    subject: "Outreach",
+    textContent: "Hello",
+  }), /Suppressed recipient/);
 });
 
 test("finalizeOutreachDrafts validates, updates signatures, and sends reviewed drafts", async () => {
