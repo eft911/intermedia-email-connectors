@@ -17,6 +17,17 @@ export const SUPPRESSED_RECIPIENTS = new Map([
   ["alysha@billyfootwear.com", "Automatic reply: no longer with company on 2026-07-30"],
   ["shkatan@aol.com", "Declined sourcing/manufacturing outreach on 2026-07-30"],
 ]);
+export const SUPPRESSED_RECIPIENT_DOMAINS = new Map([
+  ["pb5star.com", "Existing PB5 business relationship; exclude from new-business outreach"],
+]);
+
+function isSuppressedRecipient(email) {
+  const normalized = String(email || "").trim().toLocaleLowerCase();
+  if (!normalized) return false;
+  if (SUPPRESSED_RECIPIENTS.has(normalized)) return true;
+  return [...SUPPRESSED_RECIPIENT_DOMAINS.keys()]
+    .some((domain) => normalized.endsWith(`@${domain}`));
+}
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -629,8 +640,8 @@ export class EwsClient {
 
   async createEmailDraft({ to, cc = [], bcc = [], subject, textContent }) {
     const suppressed = [...to, ...cc, ...bcc]
-      .map((email) => email.toLocaleLowerCase())
-      .filter((email) => SUPPRESSED_RECIPIENTS.has(email));
+      .map((email) => String(email || "").trim().toLocaleLowerCase())
+      .filter((email) => isSuppressedRecipient(email));
     if (suppressed.length) {
       throw new Error(`Suppressed recipient(s) cannot be drafted: ${[...new Set(suppressed)].join(", ")}`);
     }
@@ -779,8 +790,8 @@ export class EwsClient {
       if (!draft.body.endsWith(oldSignature)) errors.push("trailing signature did not match");
       if (draft.to.length === 0) errors.push("recipient was missing");
       const suppressed = draft.to
-        .map((recipient) => recipient.email?.toLocaleLowerCase())
-        .filter((email) => email && SUPPRESSED_RECIPIENTS.has(email));
+        .map((recipient) => String(recipient.email || "").trim().toLocaleLowerCase())
+        .filter((email) => isSuppressedRecipient(email));
       if (suppressed.length) errors.push(`recipient is suppressed: ${[...new Set(suppressed)].join(", ")}`);
       if (errors.length) {
         results[index] = {
