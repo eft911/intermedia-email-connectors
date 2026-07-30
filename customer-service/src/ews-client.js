@@ -15,6 +15,7 @@ export const SUPPRESSED_RECIPIENTS = new Map([
   ["leslie.corbin@rockybrands.com", "Automatic reply: no longer with company on 2026-07-30"],
   ["ntaylor@toppickglobal.com", "Automatic reply: no longer with company on 2026-07-30"],
   ["alysha@billyfootwear.com", "Automatic reply: no longer with company on 2026-07-30"],
+  ["shkatan@aol.com", "Declined sourcing/manufacturing outreach on 2026-07-30"],
 ]);
 
 const parser = new XMLParser({
