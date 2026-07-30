@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EwsClient, PROCESSED_CATEGORY, _test } from "../src/ews-client.js";
+import { EwsClient, PROCESSED_CATEGORY, SUPPRESSED_RECIPIENTS, _test } from "../src/ews-client.js";
 
 function soap(inner) {
   return `<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"><s:Body>${inner}</s:Body></s:Envelope>`;
@@ -85,6 +85,16 @@ test("createEmailDraft saves a new outbound message without sending", async () =
   assert.match(requests[0], /A &amp; B footwear/);
   assert.match(requests[0], /Hello &lt;Buyer&gt;/);
   assert.doesNotMatch(requests[0], /SendOnly|SendAndSaveCopy/);
+});
+
+test("suppressed recipients cannot be drafted", async () => {
+  const client = clientWith([]);
+  assert.equal(SUPPRESSED_RECIPIENTS.has("spinto@chineselaundry.com"), true);
+  await assert.rejects(() => client.createEmailDraft({
+    to: ["spinto@chineselaundry.com"],
+    subject: "Outreach",
+    textContent: "Hello",
+  }), /Suppressed recipient/);
 });
 
 test("finalizeOutreachDrafts validates, updates signatures, and sends reviewed drafts", async () => {
